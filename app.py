@@ -7,13 +7,17 @@
     6. 增加訂位前1.2天提醒功能
 '''
 '''
-    6大button功能
-    1. 訂位查詢[預約or取消]
-    2. 菜單查詢(購物車)
-    3. 會員資訊
-    4. 店家資訊+優惠券
-    5. 店家導航
-    6. 意見回饋
+    4大button功能
+    1. 訂位預約
+    2. 訂位管理
+    3. 店內點餐
+    4. 當日外帶
+    訂餐步驟: 按下linebot的訂餐時，會先要求客人掃桌面上的QRcode，QRcode中有金鑰及桌號，會比對金鑰及桌號後，才可開始點餐
+    當日外帶: 客人選完時間之後，會比對時間自動將時間轉換成30分或整點，並提前半小時通知(使用定時系統)
+'''
+''' 
+    20200324
+    圖片問題暫時無法處理
 '''
 from flask import Flask, request, abort
 
@@ -25,7 +29,7 @@ from linebot.exceptions import (
 )
 from linebot.models import (
     MessageEvent, PostbackEvent, FollowEvent, UnfollowEvent,
-    TextMessage, TextSendMessage, ImageSendMessage, 
+    TextMessage, ImageMessage, TextSendMessage, ImageSendMessage, 
     FlexSendMessage, StickerSendMessage
 )
 
@@ -52,6 +56,11 @@ firedb = firestore.client()
 ''' firebase setting end '''
 
 from datetime import datetime
+import cv2
+#import zbar
+from pyzbar import pyzbar
+#from qrtools.qrtools import QR
+#import qrtools
 
 # import Message template from ./model/message.py(for use reply message)
 from model.message import AllMessage
@@ -97,16 +106,14 @@ def handle_postback(event):
         return 0
 
     ''' 訂位功能step3.5 '''
-    if event.postback.data == 'selected time' and doc.to_dict()['status'] == 'order' and doc.to_dict()['step'] == '3':
-        firebase_rec['step'] = '3.5'
-        firebase_rec['selected_time'] = event.postback.params['datetime']
-        doc_ref.update(firebase_rec)
-        
+    if event.postback.data == 'selected time' and doc.to_dict()['status'] == 'order' and doc.to_dict()['step'] == '3':        
         # 傳送選擇時間的Message, if 正確下一個step, 錯誤叫他重新點
         hour = int(event.postback.params['datetime'][-5:-3])
         minute = int(event.postback.params['datetime'][-2:])
         Select_time = hour*3600+minute*60
         if 49800 >= Select_time >= 41400 or 71400 >= Select_time >= 61200:
+            firebase_rec['step'] = '3.5'
+            doc_ref.update(firebase_rec)
             ConfirmPostMessage = AllMessage.Confirm_PostMessage(event.postback.params['datetime'], number = 5)
             line_bot_api.reply_message(ert, ConfirmPostMessage)
         else:
@@ -120,33 +127,12 @@ def handle_postback(event):
             firebase_rec['step'] = '4'
             firebase_rec['selected_time'] = data[1]
             doc_ref.update(firebase_rec)
-            line_bot_api.reply_message(ert, TextSendMessage(text='請問共有幾位貴賓?(輸入數字)') )
+            line_bot_api.reply_message(ert, TextSendMessage(text='請問共有幾位貴賓?') )
         else:
             firebase_rec['step'] = '3'
             doc_ref.update(firebase_rec)
             TimeMessage = AllMessage.Time_Message(number = 1)
             line_bot_api.reply_message(ert, TimeMessage) # 傳送選擇日期的Message
-        return 0
-
-    ''' 訂位功能step6 '''
-    if doc.to_dict()['status'] == 'order' and doc.to_dict()['step'] == '5':
-        firebase_rec['selected_seat'] = event.postback.data
-        firebase_rec['step'] = '6'
-        doc_ref.update(firebase_rec) # 接收並更新db的time
-        
-        rec = []
-        rec.append(doc.to_dict()['Name'])
-        rec.append(doc.to_dict()['selected_time'])
-        rec.append(doc.to_dict()['Num_People'])
-        rec.append(UserId)
-        rec.append(event.postback.data) # 剛剛選的位置
-
-        line_bot_api.push_message(UserId, TextSendMessage(text = '等候回覆中'))
-        ConfirmPostMessage = AllMessage.Confirm_PostMessage(rec, number = 2)
-        doc_ref = firedb.collection_group('控制端')
-        docs = doc_ref.stream() # generator
-        for doc in docs:
-            line_bot_api_server.push_message(doc.to_dict()['User_Id'] , ConfirmPostMessage) # 通知Manager端, 讓其確認是否同意
         return 0
 
     ''' 取消訂位step2 '''
@@ -168,7 +154,7 @@ def handle_postback(event):
             return 0
         doc_ref = firedb.collection('訂位紀錄').document(UserId)
         doc = doc_ref.get()
-        reply_message = '[取消訂位]\n詳細資訊如下:\n姓名: ' + doc.to_dict()[data][0] + '\n預約日期: ' + doc.to_dict()[data][1].split('T')[0] + '\n預約時間: ' + doc.to_dict()[data][1].split('T')[1] + '\n預約人數: ' +  doc.to_dict()[data][2]
+        reply_message = '[取消訂位]\n詳細資訊如下:\n姓名: ' + doc.to_dict()[data][0] + '\n預約日期: ' + doc.to_dict()[data][1].split('T')[0] + '\n預約時間: ' + doc.to_dict()[data][1].split('T')[1] + '\n預約人數: ' +  doc.to_dict()[data][2] + '\n訂單編號: ' +  doc.to_dict()[data][4]
         
         cancel_rec = {}
         cancel_rec[data] = None
@@ -225,8 +211,56 @@ def handle_postback(event):
                 pass
         return 0
 
-    ''' 確認餐點 '''
+    ''' 當日外帶 step3 '''
+    if doc.to_dict()['status'] == 'oout' and doc.to_dict()['step'] == '3':
+        # 傳送選擇時間的Message, if 正確下一個step, 錯誤叫他重新點
+        hour = int(event.postback.params['datetime'][-5:-3])
+        minute = int(event.postback.params['datetime'][-2:])
+        Select_time = hour*3600+minute*60
+        if 49800 >= Select_time >= 41400 or 71400 >= Select_time >= 61200:
+            firebase_rec['step'] = '3.5'
+            doc_ref.update(firebase_rec)
+            ConfirmPostMessage = AllMessage.Confirm_PostMessage(event.postback.params['datetime'], number = 5)
+            line_bot_api.reply_message(ert, ConfirmPostMessage)
+        else:
+            line_bot_api.reply_message(ert, TextSendMessage(text='麻煩請選擇其他時間') )
+        return 0
+
+    ''' 當日外帶 step4 '''
+    if doc.to_dict()['status'] == 'oout' and doc.to_dict()['step'] == '3.5':
+        if 'yes' in event.postback.data:
+            data = event.postback.data.split(' ') 
+            firebase_rec['selected_time'] = data[1]
+            firebase_rec['step'] = 'F'
+            firebase_rec['status'] = 'free'
+            doc_ref.update(firebase_rec)
+            
+            doc_ref = firedb.collection('購物車').document(UserId)
+            dict_doc = doc_ref.get().to_dict()
+
+            profile = line_bot_api.get_profile(UserId)
+            reply_message = "顧客 " + profile.display_name + " 的外帶詳細如下:" + "\n外帶時間: " + data[1]
+            for key, value in dict_doc.items():
+                reply_message += "\n" + key + ":" + str(value) + "份"
+            firebase_rec = None
+            doc_ref.set(firebase_rec)
+            line_bot_api.reply_message(ert, TextSendMessage(text=reply_message) )
+
+            doc_ref = firedb.collection_group('控制端')
+            docs = doc_ref.stream() # generator
+            for doc in docs:
+                line_bot_api_server.push_message(doc.to_dict()['User_Id'] , TextSendMessage(text=reply_message)) # 通知Manager端, 讓其確認是否同意
+        else:
+            firebase_rec['step'] = '3'
+            doc_ref.update(firebase_rec)
+            TimeMessage = AllMessage.Time_Message(number = 1)
+            line_bot_api.reply_message(ert, TimeMessage) # 傳送選擇日期的Message
+        return 0
+
+    ''' 確認餐點->要改成要求掃QRCode，然後才demo菜單，如果是預約的話不用 '''
     if 'confirm' in event.postback.data:
+        firebase_rec['step'] = '2'
+        doc_ref.update(firebase_rec)
         doc_ref = firedb.collection('購物車').document(UserId)
         doc = doc_ref.get()
         dict_doc = doc.to_dict()
@@ -235,34 +269,45 @@ def handle_postback(event):
         line_bot_api.push_message(UserId, ConfirmPostMessage)
         return 0
 
-    ''' 確認餐點step2'''
-    if 'menu' in event.postback.data:
+    ''' 確認餐點 step2'''
+    if 'menu' in event.postback.data and doc.to_dict()['step'] == '2':
         if 'yes' in event.postback.data:
-            doc_ref = firedb.collection('購物車').document(UserId)
-            line_bot_api.push_message(UserId, TextSendMessage(text = '好的! 已幫您告知告知店家，請於用餐完畢後結帳，感謝您!'))
-            
-            data = event.postback.data.split(' ')[2:]
-            profile = line_bot_api.get_profile(UserId)
-            reply_message = "顧客 " + profile.display_name + " 的餐點詳細如下:"
-            for d in range(0,len(data)-1,2):
-                reply_message = reply_message + '\n' + data[d] + ' ' + data[d+1] + "份"
-            firebase_rec = None
-            doc_ref.set(firebase_rec)
-            doc_ref = firedb.collection_group('控制端')
-            docs = doc_ref.stream() # generator
-            for doc in docs:
-                line_bot_api_server.push_message(doc.to_dict()['User_Id'] , TextSendMessage(text = reply_message)) # 通知Manager端, 讓其確認是否同意
+            if doc.to_dict()['status'] == 'oin':
+                firebase_rec['step'] = 'F'
+                firebase_rec['status'] = 'free'
+                doc_ref.update(firebase_rec)
+                doc_ref = firedb.collection('購物車').document(UserId)
+                line_bot_api.push_message(UserId, TextSendMessage(text = '好的! 已幫您告知告知店家，請於用餐完畢後結帳，感謝您!'))
+                
+                data = event.postback.data.split(' ')[2:]
+                profile = line_bot_api.get_profile(UserId)
+                reply_message = "顧客 " + profile.display_name + " 的餐點詳細如下:"
+                for d in range(0,len(data)-1,2):
+                    reply_message = reply_message + '\n' + data[d] + ' ' + data[d+1] + "份"
+                firebase_rec = None
+                doc_ref.set(firebase_rec)
+                doc_ref = firedb.collection_group('控制端')
+                docs = doc_ref.stream() # generator
+                for doc in docs:
+                    line_bot_api_server.push_message(doc.to_dict()['User_Id'] , TextSendMessage(text = reply_message)) # 通知Manager端, 讓其確認
+            else:
+                firebase_rec['step'] = '3'
+                doc_ref.update(firebase_rec)
+                TimeMessage = AllMessage.Time_Message(number = 1)
+                line_bot_api.reply_message(ert, TimeMessage) # 傳送選擇日期的Message
         else:
             Menu_Message = AllMessage.Menu_Message()
             line_bot_api.push_message(UserId, Menu_Message)
+        return 0
     else:
-        line_bot_api.reply_message(ert, TextSendMessage(text='麻煩請重新訂位!!') )
+        line_bot_api.reply_message(ert, TextSendMessage(text='麻煩請重新操作!!') )
         return 0
     #print(event.postback.params['datetime']) # {"data": "seleced", "params": {"datetime": "2019-12-21T18:44"}}
 
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    print(event)
     UserId = event.source.user_id
     UserMessage = event.message.text
     ert = event.reply_token
@@ -270,8 +315,8 @@ def handle_message(event):
     doc_ref = firedb.collection('是否訂位').document(UserId)
     doc = doc_ref.get()
     
-    ''' 訂位查詢 '''
-    if '訂位查詢' in UserMessage:
+    ''' 訂位管理 '''
+    if '訂位管理' in UserMessage:
         ConfirmPostMessage = AllMessage.Confirm_PostMessage(UserMessage, number = 4)
         line_bot_api.push_message(UserId, ConfirmPostMessage)
         return 0
@@ -281,13 +326,13 @@ def handle_message(event):
         UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 2, UserId = UserId, UserMessage = UserMessage)
         line_bot_api.reply_message(ert, UseSeveralTimesMessage) # 接續step3
         return 0
-    elif '我要訂位' in UserMessage and doc.to_dict()['status'] == 'free':# 如果有關鍵字以及status為order
+    elif '預約訂位' in UserMessage and doc.to_dict()['status'] == 'free':# 如果有關鍵字以及status為order
         UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 3, UserId = UserId, UserMessage = UserMessage)
         line_bot_api.reply_message(ert, UseSeveralTimesMessage) # 接續step3
         return 0
     
     ''' 訂位功能step2 '''
-    if doc.to_dict()['status'] == 'order' and doc.to_dict()['step'] == '1' and '訂位查詢' not in UserMessage and '菜單查詢' not in UserMessage and '意見回饋' not in UserMessage and '我要訂位' not in UserMessage:
+    if doc.to_dict()['status'] == 'order' and doc.to_dict()['step'] == '1' and '訂位管理' not in UserMessage and '店內點餐' not in UserMessage and '預約訂位' not in UserMessage:
         firebase_rec['Name'] = UserMessage[0] # 取第一個字
         firebase_rec['step'] = '2'
         doc_ref = firedb.collection('是否訂位').document(UserId)
@@ -302,24 +347,17 @@ def handle_message(event):
         firebase_rec['status'] = 'free'
         doc_ref = firedb.collection('是否訂位').document(UserId)
         doc_ref.update(firebase_rec)
-        if '訂位查詢' in UserMessage:
+        if '訂位管理' in UserMessage:
             line_bot_api.reply_message(ert, TextSendMessage(text='取消訂位'))
             UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 1, UserId = UserId, UserMessage = UserMessage)
             line_bot_api.push_message(UserId, TextSendMessage(text=UseSeveralTimesMessage))
             return 0
-        elif '菜單查詢' in UserMessage:
+        elif '店內點餐' in UserMessage:
             line_bot_api.reply_message(ert, TextSendMessage(text='取消訂位'))
             Menu_Message = AllMessage.Menu_Message()
             line_bot_api.push_message(UserId, Menu_Message)
             return 0
-        elif '意見回饋' in UserMessage:
-            line_bot_api.reply_message(ert, TextSendMessage(text='取消訂位'))
-            firebase_rec['step'] = 'FB'
-            firebase_rec['status'] = 'feedback'
-            doc_ref.update(firebase_rec)
-            line_bot_api.push_message(UserId, TextSendMessage(text="好的,將告知店家您的意見") )
-            return 0
-        elif '我要訂位' in UserMessage:
+        elif '預約訂位' in UserMessage:
             doc_ref = firedb.collection('是否訂位').document(UserId)
             doc = doc_ref.get()
             if doc.to_dict() == None: # 無過往紀錄
@@ -331,18 +369,25 @@ def handle_message(event):
                 line_bot_api.push_message(UserId, UseSeveralTimesMessage) # 接續step3
                 return 0
 
-    ''' 訂位功能step5 傳位置圖及幫客人挑位置給他選 '''
-    if doc.to_dict()['status'] == 'order' and doc.to_dict()['step'] == '4' and '訂位查詢' not in UserMessage and '菜單查詢' not in UserMessage and '意見回饋' not in UserMessage:
+    ''' 訂位功能step5 傳送確認訊息 '''
+    if doc.to_dict()['status'] == 'order' and doc.to_dict()['step'] == '4' and '訂位管理' not in UserMessage and '店內點餐' not in UserMessage:
         firebase_rec['Num_People'] = UserMessage
         firebase_rec['step'] = '5'
-        doc_ref = firedb.collection('是否訂位').document(UserId)
-        doc_ref.update(firebase_rec) # 更新狀態
-        doc = doc_ref.get()
+        doc_ref.update(firebase_rec) # 更新db的點餐狀態
         
-        ImgMessage = AllMessage.Img_Message(number = 5)
-        ChooseSeatMessage = AllMessage.Choose_Seat_Message(doc.to_dict())
-        line_bot_api.push_message(UserId, [ImgMessage, TextSendMessage(text = '由系統幫您計算出該時段可提供的位置給您，麻煩請選擇位置，感謝您!'), ChooseSeatMessage])
- 
+        rec = []
+        rec.append(doc.to_dict()['Name'])
+        rec.append(doc.to_dict()['selected_time'])
+        rec.append(UserMessage)
+        rec.append(UserId)
+
+        line_bot_api.push_message(UserId, TextSendMessage(text = '等候回覆中'))
+        ConfirmPostMessage = AllMessage.Confirm_PostMessage(rec, number = 2)
+        doc_ref = firedb.collection_group('控制端')
+        docs = doc_ref.stream() # generator
+        for doc in docs:
+            line_bot_api_server.push_message(doc.to_dict()['User_Id'] , ConfirmPostMessage) # 通知Manager端, 讓其確認是否同意
+
         return 0
 
     ''' 取消訂位step1 '''
@@ -355,118 +400,42 @@ def handle_message(event):
         return 0
             
 
-    ''' 菜單查詢 '''
-    if '菜單查詢' in UserMessage:#(doc.to_dict()['step'] == 'F' or doc.to_dict()['step'] == 'C'):
+    ''' 店內點餐 '''
+    if '店內點餐' in UserMessage:#(doc.to_dict()['step'] == 'F' or doc.to_dict()['step'] == 'C'):
+        firebase_rec['status'] = 'oin'
+        firebase_rec['step'] = '1'
+        doc_ref.update(firebase_rec)
         Menu_Message = AllMessage.Menu_Message()
         line_bot_api.reply_message(ert, Menu_Message)
         return 0
     
-    
-    ''' 會員資訊 '''
-    if '會員資訊' in UserMessage:
-        line_bot_api.reply_message(ert, TextSendMessage(text='~進廠維修中~'))
-        return 0
 
-    
-    ''' 店家資訊 '''
-    if '店家資訊' in UserMessage:
-        InformationMessage = AllMessage.Information_Message()
-        line_bot_api.reply_message(ert, InformationMessage)
-        return 0
-
-    
-    ''' 店家導航 '''
-    if '店家導航' in UserMessage:
-        line_bot_api.reply_message(ert, TextSendMessage(text="注意!!請確認已下載Google Map再點選下列網址\n" + "https://www.google.com/maps/dir/?api=1&destination=" + Restaurant_Name + "%2C"))
-        return 0
-
-
-    ''' 意見回饋 '''
-    if '意見回饋' in UserMessage:# and doc.to_dict()['step'] == 'F':
-        firebase_rec['step'] = 'FB'
-        firebase_rec['status'] = 'feedback'
+    ''' 當日外帶 '''
+    if '當日外帶' in UserMessage:
+        firebase_rec['status'] = 'oout'
+        firebase_rec['step'] = '1'
         doc_ref.update(firebase_rec)
-        line_bot_api.reply_message(ert, TextSendMessage(text="好的,將告知店家您的意見") )
+        Menu_Message = AllMessage.Menu_Message()
+        line_bot_api.reply_message(ert, Menu_Message)
         return 0
 
-    ''' 意見回饋step 2 '''
-    if doc.to_dict()['step'] == 'FB' and doc.to_dict()['status'] == 'feedback' and '訂位查詢' not in UserMessage and '菜單查詢' not in UserMessage and '我要訂位' not in UserMessage and '意見回饋' not in UserMessage:
-        firebase_rec['step'] = 'F'
-        firebase_rec['status'] = 'free'
-        doc_ref.update(firebase_rec)
-
-        fb_rec = {}
-        doc_ref = firedb.collection('意見回饋').document(UserId)
-        if doc_ref.get().to_dict() == None:
-            fb_rec['rec_1'] = UserMessage
-            doc_ref.set(fb_rec)
-        else:
-            fb_rec['rec_'+str(len(doc_ref.get().to_dict())+1)] = UserMessage
-            doc_ref.update(fb_rec)
-
-        line_bot_api.reply_message(ert, TextSendMessage(text="感謝您的回饋!!") ) # 客戶端回覆
-        doc_ref = firedb.collection('客戶端').document(UserId)
-        dic = doc_ref.get().to_dict()
-        doc_ref = firedb.collection_group('控制端')
-        docs = doc_ref.stream() # generator
-        for doc in docs:
-            line_bot_api_server.push_message(doc.to_dict()['User_Id'] , TextSendMessage(text="客戶 " + dic['User_Name'] + "意見回饋:\n" + UserMessage)) # 通知Manager端, 客戶回饋的訊息
-        #line_bot_api_server.push_message(serverId, TextSendMessage(text="客戶 " + doc['User_Name'] + ":\n" + UserMessage) ) # 通知控制端 客戶回饋的訊息
-        return 0
-    # 如果中途按下其他按鈕，取消回饋並狀態清空
-    elif doc.to_dict()['step'] == 'FB' and doc.to_dict()['status'] == 'feedback':
-        firebase_rec['step'] = 'F'
-        firebase_rec['status'] = 'free'
-        doc_ref = firedb.collection('是否訂位').document(UserId)
-        doc_ref.update(firebase_rec)
-        if '訂位查詢' in UserMessage:
-            line_bot_api.reply_message(ert, TextSendMessage(text='取消意見回饋'))
-            ConfirmPostMessage = AllMessage.Confirm_PostMessage(UserMessage, number = 4)
-            line_bot_api.push_message(UserId, ConfirmPostMessage)
-            return 0
-        elif '菜單查詢' in UserMessage:
-            line_bot_api.reply_message(ert, TextSendMessage(text='取消意見回饋'))
-            Menu_Message = AllMessage.Menu_Message()
-            line_bot_api.push_message(UserId, Menu_Message)
-            return 0
-        elif '我要訂位' in UserMessage:
-            line_bot_api.reply_message(ert, TextSendMessage(text='取消意見回饋'))
-            doc_ref = firedb.collection('是否訂位').document(UserId)
-            doc = doc_ref.get()
-            if doc.to_dict() == None: # 無過往紀錄
-                UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 2, UserId = UserId, UserMessage = UserMessage)
-                line_bot_api.push_message(UserId, UseSeveralTimesMessage) # 接續step3
-                return 0
-            elif '訂位' in UserMessage and doc.to_dict()['status'] == 'free': # 如果有關鍵字以及status為order
-                UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 3, UserId = UserId, UserMessage = UserMessage)
-                line_bot_api.push_message(UserId, UseSeveralTimesMessage) # 接續step3
-                return 0
-        elif '意見回饋' in UserMessage:
-            firebase_rec['step'] = 'FB'
-            firebase_rec['status'] = 'feedback'
-            doc_ref.update(firebase_rec)
-            line_bot_api.push_message(UserId, TextSendMessage(text="好的,將告知店家您的意見") )
-            return 0
-    
-    
     ''' 等待商家回覆 '''
-    if doc.to_dict()['step'] == '6':
-        if '訂位查詢' in UserMessage:
+    if doc.to_dict()['step'] == '5':
+        if '訂位管理' in UserMessage:
             firebase_rec['step'] = 'F'
             firebase_rec['status'] = 'free'
             doc_ref.update(firebase_rec)
             ConfirmPostMessage = AllMessage.Confirm_PostMessage(UserMessage, number = 4)
             line_bot_api.push_message(UserId, ConfirmPostMessage)
             return 0
-        elif '菜單查詢' in UserMessage:
+        elif '店內點餐' in UserMessage:
             Menu_Message = AllMessage.Menu_Message()
             line_bot_api.push_message(UserId, Menu_Message)
             return 0
-        elif '意見回饋' in UserMessage:
-            firebase_rec['step'] = 'FB'
-            firebase_rec['status'] = 'feedback'
-            doc_ref.update(firebase_rec)
-            line_bot_api.push_message(UserId, TextSendMessage(text="好的,將告知店家您的意見") )
+        elif '當日外帶' in UserMessage:
+            Menu_Message = AllMessage.Menu_Message()
+            line_bot_api.push_message(UserId, Menu_Message)
+            return 0
         else:
             line_bot_api.reply_message(ert, TextSendMessage(text='正在等待店家同意訂位中,請稍後~') )
         return 0
@@ -478,6 +447,25 @@ def handle_message(event):
         line_bot_api.push_message(UserId, TextSendMessage(text='麻煩重新操作,感謝您!'))
         return 0
 
+
+@handler.add(MessageEvent, message=ImageMessage)
+def handle_message(event):
+    print(event)
+    filepath = './test.jpg'
+    UserId = event.source.user_id
+    ert = event.reply_token
+    message_content = line_bot_api.get_message_content(event.message.id)
+    with open(filepath, 'wb') as fd:
+        for chunk in message_content.iter_content():
+            fd.write(chunk)
+    m1 = cv2.imread(filepath, 1)
+    r = pyzbar.decode(m1)
+    for i,d in enumerate(r):
+        print("第",i+1,"個條碼, 類型:",d.type,", 內容:",d.data.decode("UTF-8"))
+    #print(UserImg)
+    
+    line_bot_api.push_message(UserId, TextSendMessage(text='這是圖片'))
+    return 0
 
 # 使用者加入Line好友的時候
 @handler.add(FollowEvent)
@@ -503,7 +491,7 @@ def init_richmenu():
     docs = doc_ref.stream() # generator
     for doc in docs:
         dic = doc.to_dict()
-        line_bot_api.link_rich_menu_to_user(dic['User_Id'], Richmenu_Client_Id)
+        #line_bot_api.link_rich_menu_to_user(dic['User_Id'], Richmenu_Client_Id)
 
 # 使用者封鎖Line帳號的時候
 @handler.add(UnfollowEvent)

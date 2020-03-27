@@ -76,7 +76,7 @@ class AllMessage():
         elif number == 2:
             print(data)
             ConfirmMessage = FlexSendMessage(
-                alt_text = '確定此次訂位資訊嗎?\n姓名: ' + data[0] + '\n預約日期: ' + data[1].split('T')[0] + '\n預約時間: ' + data[1].split('T')[1] + "\n預約人數: " + data[2] + "\n選擇位置: " + data[4],
+                alt_text = '確定此次訂位資訊嗎?\n姓名: ' + data[0] + '\n預約日期: ' + data[1].split('T')[0] + '\n預約時間: ' + data[1].split('T')[1] + "\n預約人數: " + data[2], #+ "\n選擇位置: " + data[4],
                 position = 'absolute',
                 contents = {
                     "type": "bubble",
@@ -86,7 +86,7 @@ class AllMessage():
                         "contents": [
                             {
                                 "type": "text",
-                                "text": '確定此次訂位資訊嗎?\n姓名: ' + data[0] + '\n預約日期: ' + data[1].split('T')[0] + '\n預約時間: ' + data[1].split('T')[1] + "\n預約人數: " + data[2] + "\n選擇位置: " + data[4],
+                                "text": '確定此次訂位資訊嗎?\n姓名: ' + data[0] + '\n預約日期: ' + data[1].split('T')[0] + '\n預約時間: ' + data[1].split('T')[1] + "\n預約人數: " + data[2], #+ "\n選擇位置: " + data[4],
                                 "margin": "md",
                                 "wrap": True
                             },
@@ -105,7 +105,7 @@ class AllMessage():
                                 "action": {
                                     "type":"postback",
                                     "label":"訂單正確",
-                                    "data": 'yes '+ data[0] + " " + data[1] + " " + data[2] + " " + data[4] + " " + data[3]
+                                    "data": 'yes '+ data[0] + " " + data[1] + " " + data[2] + " " + data[3]
                                 },
                                 "height": "sm"
                             },
@@ -114,7 +114,7 @@ class AllMessage():
                                 "action": {
                                     "type":"postback",
                                     "label":"取消訂單",
-                                    "data":'no ' + data[0] + " " + data[1] + " " + data[2] + " " + data[3] + " " + data[4] # 3: UserId
+                                    "data":'no ' + data[0] + " " + data[1] + " " + data[2] + " " + data[3]  # 3: UserId
                                 },
                                 "height": "sm"
                             }
@@ -215,8 +215,8 @@ class AllMessage():
                                 "type": "button",
                                 "action": {
                                     "type":"message",
-                                    "label":"我要訂位",
-                                    "text": '我要訂位'
+                                    "label":"預約訂位",
+                                    "text": '預約訂位'
                                 },
                                 "height": "sm"
                             },
@@ -422,7 +422,7 @@ class AllMessage():
                             "data":"selected time",
                             "mode":"datetime",
                             "initial":nowtime, # format: date
-                            "max":maxtime, # 之後要改成30天內
+                            "max":maxtime,
                             "min":nowtime
                         }
                     }
@@ -490,12 +490,13 @@ class AllMessage():
                         reply_message.append(v[0])
                         reply_message.append(v[1].replace('T',' '))
                         reply_message.append(v[2])
+                        reply_message.append(v[4])
                         reply_data.append(k)
                 except:
                     pass
         
         if len(reply_message) == 0:
-            reply_message = [TextSendMessage(text='目前沒有訂位紀錄!!'), TextSendMessage(text='如需要訂位,麻煩按下我要訂位喔~')]
+            reply_message = [TextSendMessage(text='目前沒有訂位紀錄!!'), TextSendMessage(text='如需要訂位,麻煩按下預約訂位喔~')]
         else:
             doc_ref = firedb.collection('是否訂位').document(UserId)
             firebase_rec['step'] = 'C1'
@@ -503,7 +504,7 @@ class AllMessage():
             doc_ref.update(firebase_rec)
 
             Contents = []
-            for t in range(0, len(reply_message), 3):
+            for t in range(0, len(reply_message), 4):
                 Contents.append(
                     {
                         "type": "bubble",
@@ -513,7 +514,7 @@ class AllMessage():
                             "contents": [
                                 {
                                     "type": "text",
-                                    "text": "姓名: " + reply_message[t] + "\n訂位時間: " + reply_message[t+1] + "\n人數: " + reply_message[t+2],
+                                    "text": "姓名: " + reply_message[t] + "\n訂位時間: " + reply_message[t+1] + "\n人數: " + reply_message[t+2] + "\n訂單編號: " + reply_message[t+3],
                                     "margin": "md",
                                     "wrap": True
                                 },
@@ -522,7 +523,7 @@ class AllMessage():
                                     "action":{
                                         "type":"postback",
                                         "label": "取消此次訂位",
-                                        "data": reply_data[(t//3)]
+                                        "data": reply_data[(t//4)]
                                     },
                                     "margin": "md",
                                     "weight": "bold",
@@ -552,7 +553,7 @@ class AllMessage():
             doc_ref = firedb.collection('訂位紀錄').document(UserId)
             doc = doc_ref.get().to_dict()
             if doc == None: # 無過往紀錄
-                reply_message = [TextSendMessage(text='目前沒有訂位紀錄!!'), TextSendMessage(text='如需要訂位,麻煩按下我要訂位喔~')] 
+                reply_message = [TextSendMessage(text='目前沒有訂位紀錄!!'), TextSendMessage(text='如需要訂位,麻煩按下預約訂位喔~')] 
             else:
                 reply_message = '目前有以下訂位紀錄:'
                 for k, v in doc.items():

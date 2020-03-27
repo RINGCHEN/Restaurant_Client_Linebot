@@ -3,3 +3,7 @@ gunicorn==19.9.0
 line-bot-sdk
 firebase_admin
 datetime
+opencv-python==4.2.0.32
+opencv-python-headless
+opencv-contrib-python-headless
+pyzbar
