@@ -458,13 +458,18 @@ def handle_message(event):
     with open(filepath, 'wb') as fd:
         for chunk in message_content.iter_content():
             fd.write(chunk)
-    m1 = cv2.imread(filepath, 1)
-    r = pyzbar.decode(m1)
-    for i,d in enumerate(r):
-        print("第",i+1,"個條碼, 類型:",d.type,", 內容:",d.data.decode("UTF-8"))
-    #print(UserImg)
-    
-    line_bot_api.push_message(UserId, TextSendMessage(text='這是圖片'))
+    try:
+        m1 = cv2.imread(filepath, 1)
+        r = pyzbar.decode(m1)
+        msg = ""
+        for i,d in enumerate(r):
+            msg = d.data.decode("UTF-8")
+            print("第",i+1,"個條碼, 類型:",d.type,", 內容:",d.data.decode("UTF-8"))
+        #print(UserImg)
+        
+        line_bot_api.push_message(UserId, TextSendMessage(text='QRcode的內容為: ' + msg))
+    except:
+        line_bot_api.push_message(UserId, TextSendMessage(text='圖片不是QRcode,不做其他處理'))
     return 0
 
 # 使用者加入Line好友的時候
