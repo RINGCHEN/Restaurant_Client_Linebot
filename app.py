@@ -177,7 +177,10 @@ def handle_postback(event):
     ''' 新增餐點 '''
     if '加' in event.postback.data:
         data = event.postback.data.split(' ') # list
-        doc_ref = firedb.collection('購物車').document(UserId)
+        if doc.to_dict()['status'] == 'oout':
+            doc_ref = firedb.collection('外帶購物車').document(UserId)
+        else: 
+            doc_ref = firedb.collection('內用購物車').document(UserId)
         doc = doc_ref.get()
         if doc.to_dict() == None: # 無過往紀錄
             firebase_rec[data[1]] = 1
@@ -194,7 +197,10 @@ def handle_postback(event):
     ''' 刪除餐點 '''
     if '減' in event.postback.data:
         data = event.postback.data.split(' ')
-        doc_ref = firedb.collection('購物車').document(UserId)
+        if doc.to_dict()['status'] == 'oout':
+            doc_ref = firedb.collection('外帶購物車').document(UserId)
+        else: 
+            doc_ref = firedb.collection('內用購物車').document(UserId)
         doc = doc_ref.get()
         if doc.to_dict() == None: # 無過往紀錄
             pass
@@ -235,7 +241,7 @@ def handle_postback(event):
             firebase_rec['status'] = 'free'
             doc_ref.update(firebase_rec)
             
-            doc_ref = firedb.collection('購物車').document(UserId)
+            doc_ref = firedb.collection('外帶購物車').document(UserId)
             dict_doc = doc_ref.get().to_dict()
 
             profile = line_bot_api.get_profile(UserId)
@@ -257,11 +263,13 @@ def handle_postback(event):
             line_bot_api.reply_message(ert, TimeMessage) # 傳送選擇日期的Message
         return 0
 
-    ''' 確認餐點->要改成要求掃QRCode，然後才demo菜單，如果是預約的話不用 '''
     if 'confirm' in event.postback.data:
         firebase_rec['step'] = '2'
         doc_ref.update(firebase_rec)
-        doc_ref = firedb.collection('購物車').document(UserId)
+        if doc.to_dict()['status'] == 'oout':
+            doc_ref = firedb.collection('外帶購物車').document(UserId)
+        else:
+            doc_ref = firedb.collection('內用購物車').document(UserId)
         doc = doc_ref.get()
         dict_doc = doc.to_dict()
         #{'東坡肉': 1, '芒果炒雞柳': 3}
@@ -276,12 +284,12 @@ def handle_postback(event):
                 firebase_rec['step'] = 'F'
                 firebase_rec['status'] = 'free'
                 doc_ref.update(firebase_rec)
-                doc_ref = firedb.collection('購物車').document(UserId)
+                doc_ref = firedb.collection('內用購物車').document(UserId)
                 line_bot_api.push_message(UserId, TextSendMessage(text = '好的! 已幫您告知告知店家，請於用餐完畢後結帳，感謝您!'))
                 
                 data = event.postback.data.split(' ')[2:]
                 profile = line_bot_api.get_profile(UserId)
-                reply_message = "顧客 " + profile.display_name + " 的餐點詳細如下:"
+                reply_message = "顧客 " + profile.display_name + " 的店內點餐餐點詳細如下:"
                 for d in range(0,len(data)-1,2):
                     reply_message = reply_message + '\n' + data[d] + ' ' + data[d+1] + "份"
                 firebase_rec = None
@@ -307,7 +315,7 @@ def handle_postback(event):
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    print(event)
+    #print(event)
     UserId = event.source.user_id
     UserMessage = event.message.text
     ert = event.reply_token
@@ -402,11 +410,12 @@ def handle_message(event):
 
     ''' 店內點餐 '''
     if '店內點餐' in UserMessage:#(doc.to_dict()['step'] == 'F' or doc.to_dict()['step'] == 'C'):
-        firebase_rec['status'] = 'oin'
-        firebase_rec['step'] = '1'
-        doc_ref.update(firebase_rec)
-        Menu_Message = AllMessage.Menu_Message()
-        line_bot_api.reply_message(ert, Menu_Message)
+        #firebase_rec['status'] = 'oin'
+        #firebase_rec['step'] = '1'
+        #doc_ref.update(firebase_rec)
+        #Menu_Message = AllMessage.Menu_Message()
+        #line_bot_api.reply_message(ert, Menu_Message)
+        line_bot_api.push_message(UserId, TextSendMessage(text='麻煩拍照或上傳桌面上QRcode照片' ))
         return 0
     
 
@@ -454,6 +463,9 @@ def handle_message(event):
     filepath = './test.jpg'
     UserId = event.source.user_id
     ert = event.reply_token
+    firebase_rec = {}
+    doc_ref = firedb.collection('內用購物車').document(UserId)
+    doc = doc_ref.get()
     message_content = line_bot_api.get_message_content(event.message.id)
     with open(filepath, 'wb') as fd:
         for chunk in message_content.iter_content():
@@ -464,12 +476,28 @@ def handle_message(event):
         msg = ""
         for i,d in enumerate(r):
             msg = d.data.decode("UTF-8")
-            print("第",i+1,"個條碼, 類型:",d.type,", 內容:",d.data.decode("UTF-8"))
+            #print("第",i+1,"個條碼, 類型:",d.type,", 內容:",d.data.decode("UTF-8"))
         #print(UserImg)
-        
-        line_bot_api.push_message(UserId, TextSendMessage(text='QRcode的內容為: ' + msg))
+        if 'akanar' in msg: # 金鑰認證
+            table = msg.split(' ')[1]
+            firebase_rec['桌號'] = table
+            if doc.to_dict() == None: # 無過往紀錄
+                doc_ref.set(firebase_rec)
+            else:
+                doc_ref.update(firebase_rec) # update 桌號
+
+            doc_ref = firedb.collection('是否訂位').document(UserId)
+            firebase_rec = {}
+            firebase_rec['status'] = 'oin'
+            firebase_rec['step'] = '1'
+            doc_ref.update(firebase_rec) # update 狀態
+
+            Menu_Message = AllMessage.Menu_Message()
+            line_bot_api.push_message(UserId, Menu_Message)
+        else:
+            line_bot_api.push_message(UserId, TextSendMessage(text='QRcode的內容為: ' + msg))
     except:
-        line_bot_api.push_message(UserId, TextSendMessage(text='圖片不是QRcode,不做其他處理'))
+        line_bot_api.push_message(UserId, TextSendMessage(text='圖片不是QRcode,請上傳QRcode圖片'))
     return 0
 
 # 使用者加入Line好友的時候
