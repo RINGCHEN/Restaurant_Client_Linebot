@@ -310,6 +310,9 @@ class AllMessage():
                     else:
                         postmessage = postmessage + i + ' ' + str(data[i]) + " "
                         reply_message = reply_message + i + ' ' + str(data[i]) + "份\n"
+                if i == '桌號':
+                    postmessage = postmessage + i + ' ' + str(data[i]) + " "
+                    reply_message = reply_message + i + ' ' + str(data[i]) + "號\n"
             reply_message = reply_message + '確認無誤嗎?'
             ConfirmMessage = FlexSendMessage(
                 alt_text = '餐點確認無誤嗎?',
