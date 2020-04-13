@@ -1,11 +1,4 @@
 ''' 此為客戶端 '''
-''' 20200107: 
-    1. 按鈕增加目前訂位時間，作為排隊序位之依據  A:不用使用目前訂位時間，改用預定時間內一小時有沒有人訂位為依據
-    2. 按鈕增加座位排序功能，根據訂位人數，排正確的位置
-    3. 之後加入Pos機三方該如何運作及呼叫
-    4. 增加訂餐功能，不論在何時都能訂位(但要先訂位 或是在位置上@step要再增加依據)
-    6. 增加訂位前1.2天提醒功能
-'''
 '''
     4大button功能
     1. 訂位預約
@@ -14,10 +7,6 @@
     4. 當日外帶
     訂餐步驟: 按下linebot的訂餐時，會先要求客人掃桌面上的QRcode，QRcode中有金鑰及桌號，會比對金鑰及桌號後，才可開始點餐
     當日外帶: 客人選完時間之後，會比對時間自動將時間轉換成30分或整點，並提前半小時通知(使用定時系統)
-'''
-''' 
-    20200324
-    圖片問題暫時無法處理
 '''
 from flask import Flask, request, abort
 
@@ -55,12 +44,10 @@ firebase_admin.initialize_app(cred)
 firedb = firestore.client()
 ''' firebase setting end '''
 
+import re
 from datetime import datetime
-import cv2
-#import zbar
+import cv2 # 限定ngrok才能用
 from pyzbar import pyzbar
-#from qrtools.qrtools import QR
-#import qrtools
 
 # import Message template from ./model/message.py(for use reply message)
 from model.message import AllMessage
@@ -175,7 +162,7 @@ def handle_postback(event):
         return 0
 
     ''' 新增餐點 '''
-    if '加' in event.postback.data:
+    if bool(re.match('加', event.postback.data)):
         data = event.postback.data.split(' ') # list
         if doc.to_dict()['status'] == 'oout':
             doc_ref = firedb.collection('外帶購物車').document(UserId)
@@ -195,7 +182,7 @@ def handle_postback(event):
         return 0
     
     ''' 刪除餐點 '''
-    if '減' in event.postback.data:
+    if bool(re.match('減', event.postback.data)):
         data = event.postback.data.split(' ')
         if doc.to_dict()['status'] == 'oout':
             doc_ref = firedb.collection('外帶購物車').document(UserId)
@@ -234,7 +221,7 @@ def handle_postback(event):
 
     ''' 當日外帶 step4 '''
     if doc.to_dict()['status'] == 'oout' and doc.to_dict()['step'] == '3.5':
-        if 'yes' in event.postback.data:
+        if bool(re.match('yes', event.postback.data)):
             data = event.postback.data.split(' ') 
             firebase_rec['selected_time'] = data[1]
             firebase_rec['step'] = 'F'
@@ -263,7 +250,7 @@ def handle_postback(event):
             line_bot_api.reply_message(ert, TimeMessage) # 傳送選擇日期的Message
         return 0
 
-    if 'confirm' in event.postback.data:
+    if bool(re.match('confirm', event.postback.data)):
         firebase_rec['step'] = '2'
         doc_ref.update(firebase_rec)
         if doc.to_dict()['status'] == 'oout':
@@ -278,8 +265,8 @@ def handle_postback(event):
         return 0
 
     ''' 確認餐點 step2'''
-    if 'menu' in event.postback.data and doc.to_dict()['step'] == '2':
-        if 'yes' in event.postback.data:
+    if bool(re.match('menu', event.postback.data)) and doc.to_dict()['step'] == '2':
+        if bool(re.match('yes', event.postback.data)):
             if doc.to_dict()['status'] == 'oin':
                 firebase_rec['step'] = 'F'
                 firebase_rec['status'] = 'free'
@@ -324,7 +311,7 @@ def handle_message(event):
     doc = doc_ref.get()
     
     ''' 訂位管理 '''
-    if '訂位管理' in UserMessage:
+    if bool(re.match('訂位管理', UserMessage)):
         ConfirmPostMessage = AllMessage.Confirm_PostMessage(UserMessage, number = 4)
         line_bot_api.push_message(UserId, ConfirmPostMessage)
         return 0
@@ -355,24 +342,22 @@ def handle_message(event):
         firebase_rec['status'] = 'free'
         doc_ref = firedb.collection('是否訂位').document(UserId)
         doc_ref.update(firebase_rec)
-        if '訂位管理' in UserMessage:
+        if bool(re.match('訂位管理', UserMessage)):
             line_bot_api.reply_message(ert, TextSendMessage(text='取消訂位'))
             UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 1, UserId = UserId, UserMessage = UserMessage)
             line_bot_api.push_message(UserId, TextSendMessage(text=UseSeveralTimesMessage))
             return 0
-        elif '店內點餐' in UserMessage:
-            line_bot_api.reply_message(ert, TextSendMessage(text='取消訂位'))
-            Menu_Message = AllMessage.Menu_Message()
-            line_bot_api.push_message(UserId, Menu_Message)
+        elif bool(re.match('店內點餐', UserMessage)):
+            line_bot_api.reply_message(ert, [TextSendMessage(text='取消訂位'), TextSendMessage(text='麻煩拍照或上傳桌面上QRcode照片' )])
             return 0
-        elif '預約訂位' in UserMessage:
+        elif bool(re.match('預約訂位', UserMessage)):
             doc_ref = firedb.collection('是否訂位').document(UserId)
             doc = doc_ref.get()
             if doc.to_dict() == None: # 無過往紀錄
                 UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 2, UserId = UserId, UserMessage = UserMessage)
                 line_bot_api.push_message(UserId, UseSeveralTimesMessage) # 接續step3
                 return 0
-            elif '訂位' in UserMessage and doc.to_dict()['status'] == 'free': # 如果有關鍵字以及status為order
+            elif bool(re.match('訂位', UserMessage)) and doc.to_dict()['status'] == 'free': # 如果有關鍵字以及status為order
                 UseSeveralTimesMessage = AllMessage.Use_Several_Times_Message(number = 3, UserId = UserId, UserMessage = UserMessage)
                 line_bot_api.push_message(UserId, UseSeveralTimesMessage) # 接續step3
                 return 0
@@ -399,28 +384,21 @@ def handle_message(event):
         return 0
 
     ''' 取消訂位step1 '''
-    if '取消預約' in UserMessage:
+    if bool(re.match('取消預約', UserMessage)):
         stickermessage = AllMessage.Sticker_Message(1)
-        line_bot_api.reply_message(ert, stickermessage) # 哭哭貼圖
-        
         CancelMessage = AllMessage.Cancel_Message(UserId)
-        line_bot_api.push_message(UserId, CancelMessage)
+        line_bot_api.push_message(UserId, [stickermessage, CancelMessage])
         return 0
             
 
     ''' 店內點餐 '''
-    if '店內點餐' in UserMessage:#(doc.to_dict()['step'] == 'F' or doc.to_dict()['step'] == 'C'):
-        #firebase_rec['status'] = 'oin'
-        #firebase_rec['step'] = '1'
-        #doc_ref.update(firebase_rec)
-        #Menu_Message = AllMessage.Menu_Message()
-        #line_bot_api.reply_message(ert, Menu_Message)
+    if bool(re.match('店內點餐', UserMessage)):
         line_bot_api.push_message(UserId, TextSendMessage(text='麻煩拍照或上傳桌面上QRcode照片' ))
         return 0
     
 
     ''' 當日外帶 '''
-    if '當日外帶' in UserMessage:
+    if bool(re.match('當日外帶', UserMessage)):
         firebase_rec['status'] = 'oout'
         firebase_rec['step'] = '1'
         doc_ref.update(firebase_rec)
@@ -430,18 +408,17 @@ def handle_message(event):
 
     ''' 等待商家回覆 '''
     if doc.to_dict()['step'] == '5':
-        if '訂位管理' in UserMessage:
+        if bool(re.match('訂位管理', UserMessage)):
             firebase_rec['step'] = 'F'
             firebase_rec['status'] = 'free'
             doc_ref.update(firebase_rec)
             ConfirmPostMessage = AllMessage.Confirm_PostMessage(UserMessage, number = 4)
             line_bot_api.push_message(UserId, ConfirmPostMessage)
             return 0
-        elif '店內點餐' in UserMessage:
-            Menu_Message = AllMessage.Menu_Message()
-            line_bot_api.push_message(UserId, Menu_Message)
+        elif bool(re.match('店內點餐', UserMessage)):
+            line_bot_api.push_message(UserId, TextSendMessage(text='麻煩拍照或上傳桌面上QRcode照片' ))
             return 0
-        elif '當日外帶' in UserMessage:
+        elif bool(re.match('當日外帶', UserMessage)):
             Menu_Message = AllMessage.Menu_Message()
             line_bot_api.push_message(UserId, Menu_Message)
             return 0
@@ -458,11 +435,11 @@ def handle_message(event):
 
 
 @handler.add(MessageEvent, message=ImageMessage)
-def handle_message(event):
+def handle_imgmessage(event):
     print(event)
     filepath = './test.jpg'
     UserId = event.source.user_id
-    ert = event.reply_token
+    #ert = event.reply_token
     firebase_rec = {}
     doc_ref = firedb.collection('內用購物車').document(UserId)
     doc = doc_ref.get()
@@ -476,9 +453,9 @@ def handle_message(event):
         msg = ""
         for i,d in enumerate(r):
             msg = d.data.decode("UTF-8")
-            #print("第",i+1,"個條碼, 類型:",d.type,", 內容:",d.data.decode("UTF-8"))
-        #print(UserImg)
-        if 'akanar' in msg: # 金鑰認證
+            print("第",i+1,"個條碼, 類型:",d.type,", 內容:",d.data.decode("UTF-8"))
+        
+        if bool(re.match('akanar', msg)): # 金鑰認證
             table = msg.split(' ')[1]
             firebase_rec['桌號'] = table
             if doc.to_dict() == None: # 無過往紀錄
@@ -519,11 +496,11 @@ def handle_follow(event):
     line_bot_api.reply_message( event.reply_token, TextSendMessage(text='歡迎使用瑋瑋快易點'))
 
 # 初始化客戶端和控制端的Rich Menu圖文選單
-def init_richmenu():
-    doc_ref = firedb.collection_group('客戶端')
-    docs = doc_ref.stream() # generator
-    for doc in docs:
-        dic = doc.to_dict()
+#def init_richmenu():
+    #doc_ref = firedb.collection_group('客戶端')
+    #docs = doc_ref.stream() # generator
+    #for doc in docs:
+        #dic = doc.to_dict()
         #line_bot_api.link_rich_menu_to_user(dic['User_Id'], Richmenu_Client_Id)
 
 # 使用者封鎖Line帳號的時候
@@ -536,5 +513,5 @@ def handle_unfollow(event):
 
 
 if __name__ == "__main__":
-    init_richmenu()
+    #init_richmenu()
     app.run()
