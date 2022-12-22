@@ -1,7 +1,7 @@
-serverId = 'Ue7d3f74f2e5108ceadf2faca070a3f50'
+serverId = 'U825ca359f5e05b5671e3ca56941c5f95'
 
-LineBot_Token = 'dboqjKgzCLFQW8aAhN+ubZv0v78pdRXQ5fpSbXkPG/bzL9j15xW6RRJBibVuAtibU4amiYjYvTj3I4nxrNR+qrx4TARQ8zhkzpYJFq0r3EPt1cU0OBmO0F5gen1+uGXjqL6jrIfBl54GLe9ByH7zSQdB04t89/1O/w1cDnyilFU='
-LineBot_Secret = 'adc4dd55c8bc15707561bbb94947e5c9'
+LineBot_Token = 'UjRcJ5hphS5QkEl66WVMkps8eJwJwmtRz7QEhIFlkC0PCiHJFwSpubDVI6vTmsolf+YNIcYmwpeW2aKGvPe3K6dNnKxnB/4qykXZ/3hOHZ/oBeLlNTeDo6iZG5+uxdRBCyNhJBvpxZ+YqZPsCJojwQdB04t89/1O/w1cDnyilFU='
+LineBot_Secret = '829343d7e0cb29242eb1e5e6da4bc9f0'
 Server_LineBot_Token = 'eGvQ0bKDXDmcygq1jwmzG207LL/vm1wtrdLkeItmFq7IVEwRDC/vJMq4nQKXSQ0ZgdZIp3FWxJWRWuPKeAIE/AeYVIKpBwgEZl30QzrSM5FEJwikszHYxoqs56PvghjBhwufcsxmg9fcrGfieMpiagdB04t89/1O/w1cDnyilFU='
 Server_LineBot_Online_Token = '67euqRPDVhsbS1k5ghQpMuujjSd0XBh3Nv1AX0C/OOsMN2htGKGVTVaKbYLedMfw9oNZnr8I5m5twjXMUFWbouck95xkazWaPq9ub+tBI4QsUI8bAqb/vTT3+WoedCZkiVazBwE+fnJsZJSTOVR5OAdB04t89/1O/w1cDnyilFU='
 
